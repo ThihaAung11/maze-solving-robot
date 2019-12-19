@@ -1,4 +1,7 @@
 #include <NewPing.h>
+#include <Servo.h>
+
+Servo rotateServo,baseServo,armServo;
 
 #define S0 36
 #define S1 34
@@ -7,7 +10,7 @@
 #define sensorOut 42
 
 #define TRIGGER_PINL  A1 // Arduino pin tied to trigger pin on ping sensor.
-#define ECHO_PINL     A2// Arduino pin tied to echo pin on ping sensor.
+#define ECHO_PINL     A2//hjui8 Arduino pin tied to echo pin on ping sensor.
 
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
@@ -28,14 +31,14 @@ int dir;
 
 
 
-float P = 1.5 ;
-float D = 0.8 ;
-float I = 0.4 ;
+float P = 4;
+float D = 1;
+float I = 0.5;
 float oldErrorP = 0;
 float totalError = 0;
 
-int wall_threshold = 14;
-int front_threshold = 12;
+int wall_threshold = 15;
+int front_threshold = 10;
 
 boolean frontwall ;
 boolean leftwall ;
@@ -51,12 +54,13 @@ int en4 =  5;
 int enA =  2;   //l
 int enB =  7;   //r
 
-int baseSpeed = 180;
+int baseSpeed = 200;
 
 int RMS ;
 int LMS ;
 int frequencyR = 0,frequencyG=0,frequencyB=0;
 int yellow = 0, blue = 0, green = 0, brown=0;
+int y=0, bl=65, gr=110, br=170;
 
 NewPing sonarLeft(TRIGGER_PINL, ECHO_PINL, MAX_DISTANCE); // NewPing setup of pins and maximum distance.
 NewPing sonarRight(TRIGGER_PINR, ECHO_PINR, MAX_DISTANCE);
@@ -65,8 +69,7 @@ NewPing sonarFront(TRIGGER_PINF, ECHO_PINF, MAX_DISTANCE);
 unsigned int pingSpeed = 30; // How frequently are we going to send out a ping (in milliseconds). 50ms would be 20 times a second.
 unsigned long pingTimer;     // Holds the next ping time.
 
-
-float oldLeftSensor, oldRightSensor, leftSensor, rightSensor, frontSensor, oldFrontSensor, lSensor, rSensor, fSensor;
+float oldLeftSensor, oldRightSensor,leftSensor, rightSensor, frontSensor, oldFrontSensor, lSensor, rSensor, fSensor;
 
 void setup() {
 
@@ -84,57 +87,56 @@ void setup() {
       // Setting frequency-scaling to 20%
   digitalWrite(S0,HIGH);
   digitalWrite(S1,LOW);
+  rotateServo.attach(19);
+  rotateServo.write(40);
+  baseServo.attach(20);
+  baseServo.write(110);
+  armServo.attach(21);
+  armServo.write(50);
 }
 
 void loop() {
-
-
-  //========================================START========================================//
-
 
   ReadSensors();
   walls();
   colorDetection();
   
-  if(yellow < 2 && frequencyR > 240 && frequencyG > 240 && frequencyB < 240){
-    setDirection(STOP);
-    delay(100);
+   if(frequencyR > 240 && frequencyG > 240 && frequencyB < 210){
     adjustment();
-    //servoMovement();
+    servoMovement(yellow,y);
     Serial.println("yellow");
     yellow++;
   }
-  else if(blue < 2 && frequencyR < 40 && frequencyG < 40 && frequencyB < 200){
-    setDirection(STOP);
-    delay(100);
+   else if( frequencyR < 85 && frequencyG < 90 && frequencyB < 130){
     adjustment();
     Serial.println("blue");
-    //servoMovement();
+    servoMovement(blue,bl);
     blue++;
   }
-  else if(brown < 2 && (frequencyR < 140 && frequencyR > 180 )&&(frequencyG < 60 && frequencyG > 90 )&&frequencyB < 100){
-    setDirection(STOP);
-    delay(100);
+  else if((frequencyR > 120 && frequencyR < 190 )&&(frequencyG > 40 && frequencyG < 100 )&& frequencyB < 95){
     adjustment();
     Serial.println("brown");
-    //servoMovement();
+    servoMovement(brown,br);
     brown++;
   }
-  else if(green < 2 && frequencyR < 60&&(frequencyG < 150 && frequencyG > 200 )&&frequencyB < 60){
-    setDirection(STOP);
-    delay(100);
+   else if(frequencyR < 105 &&(frequencyG < 210 && frequencyG > 180  )&&frequencyB < 120){
     adjustment();
-   // servoMovement();
+   servoMovement(green,gr);
    Serial.println("green");
    green++;
   }  
   else if(frequencyR < 60 &&frequencyG < 60 && frequencyB < 60){
-    
+    Serial.println("stop");
     setDirection(STOP);
     delay(20000);
   }
   
-  if (rightwall == false && frontwall == true) {
+  if((rightwall == false || leftwall == false) && frontwall == false){
+    analogWrite(enA,170);
+    analogWrite(enB,170);
+    setDirection(FORWARD);
+  }
+  else if (rightwall == false && frontwall == true) {
     pid_turnLeft(false);
   }
   
@@ -149,11 +151,14 @@ void loop() {
   else if(frontwall == true && rightwall == true && leftwall == true){
     analogWrite(enA,250);
     analogWrite(enB,250);
-    digitalWrite(en1, HIGH);   // Left wheel forward
-    digitalWrite(en2, LOW);
-    digitalWrite(en3, LOW);  // Right wheel forward
-    digitalWrite(en4, HIGH);
+    if(leftSensor > rightSensor){
+      setDirection(RIGHT);
+    }
+    else{
+      setDirection(LEFT);
+    }
     delay(700);
+    
     }
   
   
@@ -259,23 +264,20 @@ void pid_forward() {
   
   if(leftSensor > rightSensor){
    
-   RMS = baseSpeed + totalError;
+   RMS = baseSpeed +totalError;
    LMS = baseSpeed -totalError; 
-   analogWrite(enB, RMS+10);
-   analogWrite(enA , LMS+10);
+   analogWrite(enB, RMS);
+   analogWrite(enA , LMS+15);
   }
 
   if(leftSensor < rightSensor){
     RMS = baseSpeed - totalError ;
     LMS = baseSpeed + totalError;
     analogWrite(enB , RMS);
-    analogWrite(enA , LMS+20);
+    analogWrite(enA , LMS+15);
   }
     setDirection(FORWARD);
 }
-
-
-//----------------------------- wall follow  control -------------------------------//
 
 void pid_turnLeft( boolean left ) {
 
@@ -286,13 +288,13 @@ void pid_turnLeft( boolean left ) {
     analogWrite(enB,RMS);
     analogWrite(enA,LMS);
     setDirection(LEFT);
-    delay(650);
+    delay(680);
     setDirection(STOP); 
     delay(1000);
     analogWrite(enA, 190);
     analogWrite(enB, 180);
     setDirection(FORWARD); 
-    delay(500);
+    delay(700);
   }
    
   else {
@@ -305,10 +307,10 @@ void pid_turnLeft( boolean left ) {
      delay(650);
      setDirection(STOP);
      delay(1000);
-     analogWrite(enA, 190);
+     analogWrite(enA, 180);
      analogWrite(enB, 180);
      setDirection(FORWARD);
-     delay(500);
+     delay(700);
   }      
 
 }
@@ -343,7 +345,21 @@ void walls() {
 }
 
 void adjustment(){
-  if (rightwall == false && frontwall == true) {
+  while(rightwall==false && frontSensor > 10){
+    setDirection(FORWARD);
+    analogWrite(enA,170);
+    analogWrite(enB,170);
+    ReadSensors();
+  }
+  
+  while(leftwall == false && frontSensor > 10){
+    setDirection(FORWARD);
+    analogWrite(enA,170);
+    analogWrite(enB,170);
+    ReadSensors();
+  }
+  
+  if (rightwall == false && frontwall < 10) {
     pid_turnLeft(false);
     setDirection(STOP);
   }
@@ -357,52 +373,95 @@ void adjustment(){
   }
   
   else if (leftwall == false && rightwall == true && frontwall == true ) {
-    pid_turnLeft(true) ;
+    pid_turnLeft(true);
     setDirection(STOP);
   }
   else if(frontwall == true && rightwall == true && leftwall == true){
-    analogWrite(enA,230);
-    analogWrite(enB,240);
-    setDirection(LEFT);
-    delay(500);
+    analogWrite(enA,250);
+    analogWrite(enB,250);
+    if(leftSensor > rightSensor){
+      setDirection(RIGHT);
+    }
+    else{
+      setDirection(LEFT);   
+    delay(700);
     setDirection(STOP);
     }
+  }
 }
 
 void colorDetection(){
   digitalWrite(S2,LOW);
-  digitalWrite(S3,LOW);
-  // Reading the output frequency
-  frequencyR = pulseIn(sensorOut, LOW);
-  //Remaping the value of the frequency to the RGB Model of 0 to 255
-  frequencyR= map(frequencyR, 5,33,255,0);
-  // Printing the value on the serial monitor
+  digitalWrite(S3,LOW);                                     
+  frequencyR = pulseIn(sensorOut, LOW);                     // Reading the output frequency
+  frequencyR= map(frequencyR, 5,38,255,0);                  //Remaping the value of the frequency to the RGB Model of 0 to 255
   Serial.print("R= ");//printing name
   Serial.print(frequencyR);//printing RED color frequency
   Serial.print("  ");
-  delay(15);
   // Setting Green filtered photodiodes to be read
   digitalWrite(S2,HIGH);
   digitalWrite(S3,HIGH);
   // Reading the output frequency
   frequencyG = pulseIn(sensorOut, LOW);
   //Remaping the value of the frequency to the RGB Model of 0 to 255
-  frequencyG = map(frequencyG, 6,35,255,0);
+  frequencyG = map(frequencyG, 6,39,255,0);
   // Printing the value on the serial monitor
   Serial.print("G= ");//printing name
   Serial.print(frequencyG);//printing RED color frequency
   Serial.print("  ");
-  delay(15);
   // Setting Blue filtered photodiodes to be read
   digitalWrite(S2,LOW);
   digitalWrite(S3,HIGH);
   // Reading the output frequency
   frequencyB = pulseIn(sensorOut, LOW);
   //Remaping the value of the frequency to the RGB Model of 0 to 255
-  frequencyB = map(frequencyB, 4,26,255,0);
+  frequencyB = map(frequencyB, 4,29,255,0);
   // Printing the value on the serial monitor
   Serial.print("B= ");//printing name
   Serial.print(frequencyB);//printing RED color frequency
   Serial.println("  ");
-  delay(15);
+}
+
+void servoMovement(int count,int degree){
+ int d=0;
+ int p=40,pos=40; 
+ if(degree < 40){
+  for(p = 40; p > degree;p-=1){
+    rotateServo.write(p);              
+    delay(15);
+    d = 1;
+  }
+ }
+ else{
+   for(pos = 40; pos < degree; pos += 1) { 
+     rotateServo.write(pos);              
+     delay(15);                       
+    } 
+  
+  }
+ 
+  if(count == 0){
+    baseServo.write(90);
+    delay(150);
+    }
+  else{
+    baseServo.write(70);
+    delay(150);  
+  }
+  armServo.write(0);
+  delay(150);
+  armServo.write(50);
+  if(d==1){
+    for(p=0 ; p < 40;p+=1){
+    rotateServo.write(p);              
+    delay(15);
+  }
+  }
+  else{
+    for(pos=degree; pos > 40;pos-=1){
+    rotateServo.write(pos);              
+    delay(15);
+    }
+  }
+  delay(150);
 }
